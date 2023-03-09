@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/stats"
 )
 
@@ -55,6 +56,48 @@ func TestServerStatsHandler(t *testing.T) {
 	assert.Equal("grpc", tags[ext.RPCSystem])
 	assert.Equal("/grpc.Fixture/Ping", tags[ext.GRPCFullMethod])
 	assert.Equal(ext.SpanKindServer, tags[ext.SpanKind])
+}
+
+func TestServerStatsHandlerWithUntracedMethod(t *testing.T) {
+	assert := assert.New(t)
+
+	serviceName := "grpc-service"
+	statsHandler := NewServerStatsHandler(WithServiceName(serviceName), WithUntracedMethods("/grpc.Fixture/Ping"))
+	server, err := newServerStatsHandlerTestServer(statsHandler)
+	if err != nil {
+		t.Fatalf("failed to start test server: %s", err)
+	}
+	defer server.Close()
+
+	mt := mocktracer.Start()
+	defer mt.Stop()
+	_, err = server.client.Ping(context.Background(), &FixtureRequest{Name: "name"})
+	assert.NoError(err)
+
+	waitForSpans(mt, 1)
+	spans := mt.FinishedSpans()
+	assert.Len(spans, 0)
+}
+
+func TestServerStatsHandlerWithUntracedMethodEmpty(t *testing.T) {
+	assert := assert.New(t)
+
+	serviceName := "grpc-service"
+	statsHandler := NewServerStatsHandler(WithServiceName(serviceName), WithUntracedMethods())
+	server, err := newServerStatsHandlerTestServer(statsHandler)
+	if err != nil {
+		t.Fatalf("failed to start test server: %s", err)
+	}
+	defer server.Close()
+
+	mt := mocktracer.Start()
+	defer mt.Stop()
+	_, err = server.client.Ping(context.Background(), &FixtureRequest{Name: "name"})
+	assert.NoError(err)
+
+	waitForSpans(mt, 1)
+	spans := mt.FinishedSpans()
+	assert.Len(spans, 0)
 }
 
 func newServerStatsHandlerTestServer(statsHandler stats.Handler) (*rig, error) {
